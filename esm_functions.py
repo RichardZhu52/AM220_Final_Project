@@ -19,9 +19,6 @@ from ete3 import Tree
 import torch.nn.functional as F
 from Bio import SeqIO
 from io import StringIO
-os.environ['GEOMSTATS_BACKEND'] = 'pytorch'
-import geomstats.backend as gs
-from geomstats.geometry.poincare_ball import PoincareBall
 import matplotlib.pyplot as plt
 import networkx as nx
 from sklearn.decomposition import PCA
@@ -37,18 +34,16 @@ from PoincareMaps.poincare_maps import poincare_distance
 from PoincareMaps.visualize import plot_poincare_disc
 
 sys.path.insert(0, os.path.join(root, 'TreeRep'))
-from TreeRep.python_version.TreeRep import TreeRep # Assuming TreeRep.py is in the same directory or PYTHONPATH
+from TreeRep.python_version.TreeRep import TreeRep 
 
 # --- Configuration ---
 # Define paths relative to the script location for mounting
 LOCAL_PROJECT_PATH = os.path.dirname(__file__) if "__file__" in globals() else "."
-REMOTE_PROJECT_PATH = "/project" # Using a specific remote path is often clearer
+REMOTE_PROJECT_PATH = "/project" 
 
 # --- Modal App Setup ---
-app = modal.App(name="protein-embedder") # Give your app a name
+app = modal.App(name="protein-embedder")
 
-# # Set up logging to avoid cluttering the output
-# logging.set_verbosity_error()
 
 # Mount the project directory inside the container
 # Files in LOCAL_PROJECT_PATH will appear under REMOTE_PROJECT_PATH inside the container
@@ -63,7 +58,6 @@ image = (
         "numpy", #"numpy==1.26.2",
         "einops",
         "huggingface-hub",
-        "geomstats",
         "scikit-bio",
         "seaborn",
         "fastdtw",
@@ -71,9 +65,7 @@ image = (
         "ete3",
         "PyQt5",
         "esm",
-        "biotite"#"biotite==0.41.2"
-        # Add accelerate for potential speedups, though not strictly required by this code
-        # "accelerate"
+        "biotite"
     )
     .run_commands([
         # Install Git LFS and initialize it
@@ -112,8 +104,7 @@ image = (
 @app.function(
     gpu="A100-40GB",
     image=image,
-    secrets=[modal.Secret.from_name("huggingface-secret")], # Ensure you have a valid Hugging Face token
-    # Optional: Add a timeout
+    secrets=[modal.Secret.from_name("huggingface-secret")], 
     timeout=86000 #24 hours
 )
 def embed_proteins(
@@ -134,7 +125,6 @@ def embed_proteins(
     Returns:
         str: Path to the saved embeddings file inside the container.
     """
-    # AutoTokenizer might still be needed implicitly, keep import for safety
     from transformers import AutoTokenizer, AutoModel
     import time
     torch.set_default_dtype(torch.float64) 
@@ -156,7 +146,6 @@ def embed_proteins(
         if tokenizer is None:
             raise RuntimeError(f"Could not retrieve tokenizer from loaded model: {model_name}")
     
-    # clone (or init) your dataset repo locally
     repo = Repository(
         local_dir="AM220_HF_Local",
         clone_from=hf_repo_id,
@@ -216,11 +205,7 @@ def embed_proteins(
             encodings = {k: v.to(device) for k, v in encodings.items()}
             with torch.no_grad():
                 outputs = model(**encodings)
-                # Extract embeddings (e.g., CLS token of last hidden state)
-                # Note: ESM models often benefit from mean pooling over sequence length,
-                # but we stick to CLS as per the original code.
-                # embeddings = outputs.last_hidden_state.mean(dim=1).cpu() # Alternative: Mean pooling
-                embeddings = outputs.last_hidden_state[:, 0, :].cpu() # Original: CLS token
+                embeddings = outputs.last_hidden_state[:, 0, :].cpu()
 
         if i%5==0:
             print(f"Tree {i} out of {total_trees}: {afa_filename}. (Check) First element: {embeddings[0, 0].item()} Last element: {embeddings[0, -1].item()}")
@@ -228,7 +213,7 @@ def embed_proteins(
         # Derive the upload filename from the input afa filename, keeping the .pt extension
         base_name = os.path.basename(afa_filename)
         file_root, _ = os.path.splitext(base_name)
-        hf_upload_filename = f"{file_root}.pt" # e.g., "AC_PF00012_1.pt"
+        hf_upload_filename = f"{file_root}.pt" 
         if embedding_directory:
             # Ensure the subdirectory exists
             target_dir = os.path.join("AM220_HF_Local", embedding_directory)
@@ -262,9 +247,6 @@ def embed_proteins(
 #             repo_type=repo_type,
 #         )
 
-#         # Load the tensor from the downloaded file
-#         # Load onto CPU first to avoid potential GPU memory issues if run locally
-#         # and to ensure compatibility regardless of where this function runs.
 #         print("Loading embeddings tensor...")
 #         embeddings = torch.load(local_pt_path, map_location='cpu')
 
@@ -283,7 +265,6 @@ def embed_proteins(
 
 #     except Exception as e:
 #         print(f"Error processing file {pt_filename} from repo {hf_repo_id}: {e}")
-#         # Re-raise the exception to signal failure to the caller
 #         raise
 
 def calculate_similarity_matrix(
@@ -319,7 +300,6 @@ def calculate_similarity_matrix(
         # 2. Compute the matrix product of the normalized tensor with its transpose.
         if distance_metric == "cosine":
             embeddings_normalized = F.normalize(embeddings, p=2, dim=1)
-            # similarity = X_norm @ X_norm^T
             similarity_matrix = torch.matmul(embeddings_normalized, embeddings_normalized.t())
 
             # Clamp values to [-1, 1] to handle potential floating point inaccuracies
@@ -333,8 +313,6 @@ def calculate_similarity_matrix(
             # Ensure diagonal is exactly zero (distance of a point to itself)
             similarity_matrix.fill_diagonal_(0.0)
 
-        # Make sure you have a valid DISTANCE matrix here
-        # If using cosine similarity, convert it:
         if distance_metric == "cosine":
             distance_matrix_for_nj = 1.0 - similarity_matrix
         elif distance_metric == "euclidean":
@@ -348,7 +326,6 @@ def calculate_similarity_matrix(
 
     except Exception as e:
         print(f"Error processing file {pt_filename}")
-        # Re-raise the exception to signal failure to the caller
         raise
 
 def neighbor_joining(distance_matrix, labels, min_dist = 0) -> str:
@@ -431,7 +408,7 @@ def fastme(distance_matrix: torch.Tensor,
         # First line: number of taxa
         phylip_file.write(f"{n}\n")
         # Each row: label (padded) then distances
-        fmt = f"{{:.{digits}g}}"
+        fmt = f"{{:.{digits}f}}"
         for lbl, row in zip(labels, dm_np):
             # sanitize label (no spaces or forbidden chars)
             safe_lbl = lbl.replace(" ", "_")[:64]
@@ -480,7 +457,7 @@ def gpu_container_compute_poincare_maps(tree_embeddings, labels, protein_accessi
         features = tree_embeddings,
         labels   = labels,
         fout    = os.path.join(REMOTE_PROJECT_PATH, "PoincareEmbeddings", protein_accession),
-        mode     = 'features',        # RFA built from your raw features
+        mode     = 'features',     
         k_neighbours = k_neighbors,
         distlocal    = 'minkowski',
         sigma        = sigma,
@@ -492,7 +469,7 @@ def gpu_container_compute_poincare_maps(tree_embeddings, labels, protein_accessi
         burnin       = 500,
         lrm          = 1.0,
         earlystop    = 1e-4,
-        cuda         = 1,             # or 1 if you have GPU
+        cuda         = 1,           
         debugplot    = False,
     )
     return embeddings_2d
@@ -504,7 +481,7 @@ def cpu_container_compute_poincare_maps(tree_embeddings, labels, protein_accessi
             features = tree_embeddings,
             labels   = labels,
             fout    = os.path.join(LOCAL_PROJECT_PATH, "Trees_Playground", protein_accession), #temp_fout_path,
-            mode     = 'features',        # RFA built from your raw features
+            mode     = 'features',       
             k_neighbours = k_neighbors, #5
             distlocal    = 'minkowski',
             sigma        = sigma,
@@ -516,7 +493,7 @@ def cpu_container_compute_poincare_maps(tree_embeddings, labels, protein_accessi
             burnin       = 500,
             lrm          = 1.0,
             earlystop    = 1e-4,
-            cuda         = 0,             # or 1 if you have GPU
+            cuda         = 0,        
             debugplot    = False,
         )
     return embeddings_2d
@@ -613,7 +590,6 @@ def dimension_reduction(embeddings, n_components=45):
     return torch.tensor(reduced_embeddings, device=embeddings.device)
 
 def get_treeRep_distance_matrix(distance_matrix):
-    # Assume 'your_distance_matrix' is your N x N NumPy array
     n = distance_matrix.shape[0]
     tree_builder = TreeRep(d=distance_matrix)
     tree_builder.learn_tree()
@@ -654,10 +630,6 @@ def grid_search_alpha(D_euc: np.ndarray,
 
     D_euc_t = torch.as_tensor(D_euc)
     D_hyp_t = torch.as_tensor(D_hyp)
-
-    #normalize the distance matrices to [0,1] (min distance is already 0)
-    D_euc_t = D_euc_t / D_euc_t.max()
-    D_hyp_t = D_hyp_t / D_hyp_t.max()
 
     for alpha in alphas:
         # fuse directly in torch, and cast to float32
@@ -750,9 +722,6 @@ class Experiments:
                 file_dir_on_hub = os.path.dirname(normalized_filepath_on_hub)
                 file_basename_on_hub = os.path.basename(normalized_filepath_on_hub)
 
-                # Match directory:
-                # If hub_target_dir is empty (root), file_dir_on_hub should also be empty.
-                # If hub_target_dir is specified, file_dir_on_hub should match it.
                 if file_dir_on_hub == hub_target_dir:
                     base_name, _ = os.path.splitext(file_basename_on_hub)
                     existing.add(base_name)
@@ -869,24 +838,21 @@ class Experiments:
 
         for i, afa in enumerate(list_of_filenames):
             base, _ = os.path.splitext(afa)
-            if sequence_embedding_directory:
-                emb_path = os.path.join(self.local_dir, sequence_embedding_directory, base + ".pt")
-            else:
-                emb_path = os.path.join(self.local_dir, base + ".pt")
-            if not os.path.isfile(emb_path):
-                raise FileNotFoundError(f"{emb_path} not found.")
 
             # Load phylogenetic labels
             seqs = list(SeqIO.parse(os.path.join(fasta_dir, afa), "fasta"))
             labels = [r.id for r in seqs]
 
-            seq_emb = torch.load(emb_path, map_location="cpu")
-            if generation_method == "cosine":
-                dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="cosine")
-            elif generation_method == "euclidean":
-                dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="euclidean")
-            elif generation_method == "euclidean_structure_sequence_CCC":
-                seq_dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="euclidean")
+            if generation_method in ["euclidean_structure_sequence_CCC", "euclidean_sequence", "cosine_sequence"]:
+                if sequence_embedding_directory:
+                    emb_path = os.path.join(self.local_dir, sequence_embedding_directory, base + ".pt")
+                else:
+                    emb_path = os.path.join(self.local_dir, base + ".pt")
+                if not os.path.isfile(emb_path):
+                    raise FileNotFoundError(f"{emb_path} not found.")
+                seq_emb = torch.load(emb_path, map_location="cpu")
+
+            if generation_method in ["euclidean_structure_sequence_CCC", "euclidean_structure", "cosine_structure"]:
                 if structure_embedding_directory:
                     structure_emb_path = os.path.join(self.local_dir, structure_embedding_directory, base + ".pt")
                 else:
@@ -894,24 +860,41 @@ class Experiments:
                 if not os.path.isfile(structure_emb_path):
                     raise FileNotFoundError(f"{structure_emb_path} not found.")
                 structure_emb = torch.load(structure_emb_path, map_location="cpu")
+
+            if generation_method == "cosine_sequence":
+                dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="cosine")
+            elif generation_method == "euclidean_sequence":
+                dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="euclidean")
+            elif generation_method == "euclidean_structure":
+                dist = calculate_similarity_matrix(structure_emb, pt_filename=base, distance_metric="euclidean")
+            elif generation_method == "cosine_structure":
+                dist = calculate_similarity_matrix(structure_emb, pt_filename=base, distance_metric="cosine")
+            elif generation_method == "euclidean_structure_sequence_CCC":
+                seq_dist = calculate_similarity_matrix(seq_emb, pt_filename=base, distance_metric="euclidean")
+                seq_dist = seq_dist / seq_dist.max()
                 structure_dist = calculate_similarity_matrix(structure_emb, pt_filename=base, distance_metric="euclidean")
+                structure_dist = structure_dist / structure_dist.max()
                 alpha = grid_search_alpha(structure_dist, seq_dist, labels,
                                              alphas=np.linspace(0, 1, 6),
                                              tree_construction_fn=tree_method)
                 dist = alpha * structure_dist + (1 - alpha) * seq_dist
-            else:
+            else: #otherwise, use poincare data
                 hyp = torch.load(os.path.join(poincare_folder, f"{base}.pt"), map_location="cpu")
                 D_hyp = poincare_distance(hyp, rescale=rescale_poincare)
+                #normalize to [0,1]
+                D_hyp = D_hyp / D_hyp.max()
                 if generation_method == "poincare":
                     dist = D_hyp
-                elif generation_method == "structure_sequence_CCC":
+                elif generation_method == "poincare_structure_sequence_CCC":
                     hyp_other = torch.load(os.path.join(other_poincare_folder, f"{base}.pt"), map_location="cpu")
                     D_hyp_other = poincare_distance(hyp_other, rescale=rescale_poincare)
+                    D_hyp_other = D_hyp_other / D_hyp_other.max()
 
                     alpha = grid_search_alpha(D_hyp_other, D_hyp, labels,
                                                  alphas=np.linspace(0, 1, 6),
                                                  tree_construction_fn=tree_method)
                     dist = alpha * D_hyp_other + (1 - alpha) * D_hyp
+            dist = dist / dist.max()
             newick = tree_method(dist, labels)
             with open(os.path.join(tree_folder, base + ".tre"), "w") as f:
                 f.write(newick)
@@ -1095,7 +1078,7 @@ def main(on_modal=True):
         if embed_method == "structure_sequence_CCC":
             tree_generation_method = "euclidean_structure_sequence_CCC"
         else:
-            tree_generation_method = "euclidean" 
+            tree_generation_method = "euclidean_structure" 
         # Algorithm for tree construction (e.g., fastme or neighbor_joining)
         tree_construction_algorithm = fastme
 
@@ -1124,116 +1107,116 @@ def main(on_modal=True):
         )
         print(f"Tree generation complete. Results in '{tree_folder_name}'.")
 
-    #Parameters to test for structure embedding experiments
-    k_neighbors = [5]
-    embedding_methods = ['structure','structure_sequence_CCC'] #not doing structure sequence concat because the distances are on different scales, structure distance washed out sequence distance
-    for k in k_neighbors:
-        for embed_method in embedding_methods:
-            try:
-                print(f"Running with k_neighbors={k}, embedding_method={embed_method}")
+    # #Parameters to test for structure embedding experiments
+    # k_neighbors = [5]
+    # embedding_methods = ['structure_sequence_CCC'] #not doing structure sequence concat because the distances are on different scales, structure distance washed out sequence distance
+    # for k in k_neighbors:
+    #     for embed_method in embedding_methods:
+    #         try:
+    #             print(f"Running with k_neighbors={k}, embedding_method={embed_method}")
 
-                exp = Experiments(on_modal=on_modal) #embedding_model="esm3_sm_open_v1")
+    #             exp = Experiments(on_modal=on_modal) #embedding_model="esm3_sm_open_v1")
 
-                # --- Configuration for this specific run ---
-                # Source directory of all .afa files
-                fasta_test_set_dir = "fasta_test_set_200_0507"
+    #             # --- Configuration for this specific run ---
+    #             # Source directory of all .afa files
+    #             fasta_test_set_dir = "fasta_test_set_200_0507"
 
-                # HF Hub subdirectory and local directory name for esm3_sm_open_v1 embeddings
-                sequence_embedding_directory_name = f"ESMC_Sequence_Embeddings"
-                structure_embedding_directory_name = f"embeddings_esm3_all_trees_0507"
+    #             # HF Hub subdirectory and local directory name for esm3_sm_open_v1 embeddings
+    #             sequence_embedding_directory_name = f"ESMC_Sequence_Embeddings"
+    #             structure_embedding_directory_name = f"embeddings_esm3_all_trees_0507"
                 
-                # Local folder for Poincare distance tensors and plots
-                poincare_folder_name = f"poincare_dists_structure_0509_k_{k}_embedding_method_{embed_method}_adaptive_sigma" 
-                poincare_n_components_pca = 10 # PCA components before Poincare embedding
-                poincare_k_neighbors = k      # k-neighbors for Poincare RAG
-                poincare_Sigma = None
-                poincare_adaptive_sigma = True # Use adaptive sigma for Poincare RAG
+    #             # Local folder for Poincare distance tensors and plots
+    #             poincare_folder_name = f"poincare_dists_structure_0509_k_{k}_embedding_method_{embed_method}_adaptive_sigma" 
+    #             poincare_n_components_pca = 10 # PCA components before Poincare embedding
+    #             poincare_k_neighbors = k      # k-neighbors for Poincare RAG
+    #             poincare_Sigma = None
+    #             poincare_adaptive_sigma = True # Use adaptive sigma for Poincare RAG
                 
-                # Local folder for generated Newick tree files
-                # Method to generate distance matrix for tree building (from Poincare embeddings)
-                if embed_method == "structure_sequence_CCC":
-                    tree_generation_method = "structure_sequence_CCC"
-                else:
-                    tree_generation_method = "poincare" 
-                # Algorithm for tree construction (e.g., fastme or neighbor_joining)
-                tree_construction_algorithm = fastme
-                rescale_poincare = True
-                tree_folder_name = f"trees_structure_hyperbolic_0509_k_{k}_embedding_method_{embed_method}_adaptive_sigma"
+    #             # Local folder for generated Newick tree files
+    #             # Method to generate distance matrix for tree building (from Poincare embeddings)
+    #             if embed_method == "structure_sequence_CCC":
+    #                 tree_generation_method = "poincare_structure_sequence_CCC"
+    #             else:
+    #                 tree_generation_method = "poincare" 
+    #             # Algorithm for tree construction (e.g., fastme or neighbor_joining)
+    #             tree_construction_algorithm = fastme
+    #             rescale_poincare = True
+    #             tree_folder_name = f"trees_structure_hyperbolic_0509_k_{k}_embedding_method_{embed_method}_adaptive_sigma"
 
-                # --- Step 1: Sample 300 files for testing ---
-                sampled_filenames_basenames = exp._collect_fasta_files(fasta_test_set_dir)
+    #             # --- Step 1: Sample 300 files for testing ---
+    #             sampled_filenames_basenames = exp._collect_fasta_files(fasta_test_set_dir)
 
-                # --- Step 2: Generate embeddings for these sampled files using esm3_sm_open_v1 ---
-                print(f"Generating esm3_sm_open_v1 embeddings...")
-                exp.generate_embeddings(
-                    list_of_filenames=sampled_filenames_basenames,
-                    embedding_directory=structure_embedding_directory_name, # Subdirectory on HF Hub
-                    skip_existing=True, # Recommended
-                    fasta_dir=fasta_test_set_dir # Location of the .afa files to be embedded
-                )
+    #             # --- Step 2: Generate embeddings for these sampled files using esm3_sm_open_v1 ---
+    #             print(f"Generating esm3_sm_open_v1 embeddings...")
+    #             exp.generate_embeddings(
+    #                 list_of_filenames=sampled_filenames_basenames,
+    #                 embedding_directory=structure_embedding_directory_name, # Subdirectory on HF Hub
+    #                 skip_existing=True, # Recommended
+    #                 fasta_dir=fasta_test_set_dir # Location of the .afa files to be embedded
+    #             )
 
-                # --- Step 3: Pull embeddings and generate Poincaré distances ---
-                print(f"Ensuring local Hugging Face repository '{exp.local_dir}' is up-to-date...")
-                try:
-                    repo = Repository(local_dir=exp.local_dir, clone_from=exp.hf_repo_id, repo_type=exp.repo_type)
-                    repo.git_pull()
-                    print("Local repository updated.")
-                except Exception as e:
-                    print(f"Could not pull from Hugging Face Hub repository: {e}")
-                structure_distances = f"poincare_dists_structure_0509_k_{k}_embedding_method_structure_adaptive_sigma"
-                if embed_method == "structure_sequence_CCC" and os.path.exists(structure_distances):
-                    print(f"Using existing Poincaré distances from '{structure_distances}'...")
-                else:
-                    print(f"Generating Poincaré distances...")
-                    exp.generate_poincare_distances(
-                        list_of_filenames=sampled_filenames_basenames,
-                        poincare_folder=poincare_folder_name,
-                        structure_embedding_directory=structure_embedding_directory_name,
-                        sequence_embedding_directory=sequence_embedding_directory_name,
-                        poincare_method = embed_method,
-                        n_components=poincare_n_components_pca,
-                        k_neighbors=poincare_k_neighbors,
-                        adaptive_sigma=poincare_adaptive_sigma,
-                        sigma=poincare_Sigma # Sigma for Poincare RAG
-                    )
-                    print(f"Poincaré distance generation complete. Results in '{poincare_folder_name}'.")
+    #             # --- Step 3: Pull embeddings and generate Poincaré distances ---
+    #             print(f"Ensuring local Hugging Face repository '{exp.local_dir}' is up-to-date...")
+    #             try:
+    #                 repo = Repository(local_dir=exp.local_dir, clone_from=exp.hf_repo_id, repo_type=exp.repo_type)
+    #                 repo.git_pull()
+    #                 print("Local repository updated.")
+    #             except Exception as e:
+    #                 print(f"Could not pull from Hugging Face Hub repository: {e}")
+    #             structure_distances = f"poincare_dists_structure_0509_k_{k}_embedding_method_structure_adaptive_sigma"
+    #             if embed_method == "structure_sequence_CCC" and os.path.exists(structure_distances):
+    #                 print(f"Using existing Poincaré distances from '{structure_distances}'...")
+    #             else:
+    #                 print(f"Generating Poincaré distances...")
+    #                 exp.generate_poincare_distances(
+    #                     list_of_filenames=sampled_filenames_basenames,
+    #                     poincare_folder=poincare_folder_name,
+    #                     structure_embedding_directory=structure_embedding_directory_name,
+    #                     sequence_embedding_directory=sequence_embedding_directory_name,
+    #                     poincare_method = embed_method,
+    #                     n_components=poincare_n_components_pca,
+    #                     k_neighbors=poincare_k_neighbors,
+    #                     adaptive_sigma=poincare_adaptive_sigma,
+    #                     sigma=poincare_Sigma # Sigma for Poincare RAG
+    #                 )
+    #                 print(f"Poincaré distance generation complete. Results in '{poincare_folder_name}'.")
 
-                # --- Step 4: Generate trees using Poincare distances ---
-                print(f"Generating phylogenetic trees for {len(sampled_filenames_basenames)} files...")
-                if embed_method == "structure_sequence_CCC":
-                    exp.generate_trees(
-                        list_of_filenames=sampled_filenames_basenames,
-                        tree_folder=tree_folder_name,
-                        sequence_embedding_directory=None, #won't be used
-                        structure_embedding_directory=None,
-                        fasta_dir=fasta_test_set_dir, # Source of .afa files for labels
-                        generation_method=tree_generation_method,
-                        tree_method=tree_construction_algorithm,
-                        poincare_folder=f"poincare_dists_structure_0509_k_{k}_embedding_method_structure_adaptive_sigma",
-                        other_poincare_folder=f"poincare_dists_esmc_0507_k_5_pca_10_rescaling_True",
-                        rescale_poincare=rescale_poincare
-                    )
-                else:
-                    exp.generate_trees(
-                        list_of_filenames=sampled_filenames_basenames,
-                        tree_folder=tree_folder_name,
-                        sequence_embedding_directory=None, #won't be used
-                        structure_embedding_directory=None,
-                        fasta_dir=fasta_test_set_dir, # Source of .afa files for labels
-                        generation_method=tree_generation_method,
-                        tree_method=tree_construction_algorithm,
-                        poincare_folder=poincare_folder_name, # Source of Poincare distance matrices
-                        rescale_poincare=rescale_poincare
-                    )
-                print(f"Tree generation complete. Results in '{tree_folder_name}'.")
-            except Exception as e:
-                print(f"Error during processing: {e}")
-                # Save an error report file naming k_neighbors and embedding_method
-                error_fname = f"error_k_neighbors_{k}_embedding_method_{embed_method}.txt"
-                with open(error_fname, "w") as err_f:
-                    err_f.write(f"Error encountered for k_neighbors={k}, embedding_method={embed_method}:\n")
-                    err_f.write(str(e))
-                continue
+    #             # --- Step 4: Generate trees using Poincare distances ---
+    #             print(f"Generating phylogenetic trees for {len(sampled_filenames_basenames)} files...")
+    #             if embed_method == "structure_sequence_CCC":
+    #                 exp.generate_trees(
+    #                     list_of_filenames=sampled_filenames_basenames,
+    #                     tree_folder=tree_folder_name,
+    #                     sequence_embedding_directory=None, #won't be used
+    #                     structure_embedding_directory=None,
+    #                     fasta_dir=fasta_test_set_dir, # Source of .afa files for labels
+    #                     generation_method=tree_generation_method,
+    #                     tree_method=tree_construction_algorithm,
+    #                     poincare_folder=f"poincare_dists_structure_0509_k_{k}_embedding_method_structure_adaptive_sigma",
+    #                     other_poincare_folder=f"poincare_dists_esmc_0507_k_5_pca_10_rescaling_True",
+    #                     rescale_poincare=rescale_poincare
+    #                 )
+    #             else:
+    #                 exp.generate_trees(
+    #                     list_of_filenames=sampled_filenames_basenames,
+    #                     tree_folder=tree_folder_name,
+    #                     sequence_embedding_directory=None, #won't be used
+    #                     structure_embedding_directory=None,
+    #                     fasta_dir=fasta_test_set_dir, # Source of .afa files for labels
+    #                     generation_method=tree_generation_method,
+    #                     tree_method=tree_construction_algorithm,
+    #                     poincare_folder=poincare_folder_name, # Source of Poincare distance matrices
+    #                     rescale_poincare=rescale_poincare
+    #                 )
+    #             print(f"Tree generation complete. Results in '{tree_folder_name}'.")
+    #         except Exception as e:
+    #             print(f"Error during processing: {e}")
+    #             # Save an error report file naming k_neighbors and embedding_method
+    #             error_fname = f"error_k_neighbors_{k}_embedding_method_{embed_method}.txt"
+    #             with open(error_fname, "w") as err_f:
+    #                 err_f.write(f"Error encountered for k_neighbors={k}, embedding_method={embed_method}:\n")
+    #                 err_f.write(str(e))
+    #             continue
 
 if __name__ == "__main__":
     # Run the main function with default parameters
